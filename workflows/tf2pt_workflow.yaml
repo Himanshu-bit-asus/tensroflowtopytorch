@@ -1,0 +1,80 @@
+# Cloud Workflows: TensorFlow -> PyTorch conversion pipeline
+#
+# Deploy with something like:
+#   gcloud workflows deploy tf2pt-workflow --source=workflows/tf2pt_workflow.yaml --location=us-central1
+#
+# Invoke with:
+#   gcloud workflows run tf2pt-workflow --data='{"tf_model_uri":"gs://...","artifacts_prefix_uri":"gs://...","service_urls":{...}}'
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - tf_model_uri: ${args.tf_model_uri}
+          - artifacts_prefix_uri: ${args.artifacts_prefix_uri}
+          - service_urls: ${args.service_urls}
+          - job_id: ${default(map.get(args, "job_id"), string(uuid()))}
+
+    - analyze:
+        call: http.post
+        args:
+          url: ${service_urls.analyzer + "/analyze"}
+          headers:
+            Content-Type: application/json
+          body:
+            job_id: ${job_id}
+            tf_model_uri: ${tf_model_uri}
+            artifacts_prefix_uri: ${artifacts_prefix_uri}
+        result: analyze_resp
+
+    - convert:
+        call: http.post
+        args:
+          url: ${service_urls.converter + "/convert"}
+          headers:
+            Content-Type: application/json
+          body:
+            job_id: ${job_id}
+            tf_model_uri: ${tf_model_uri}
+            blueprint_uri: ${analyze_resp.body.blueprint_uri}
+            artifacts_prefix_uri: ${artifacts_prefix_uri}
+        result: convert_resp
+
+    - validate:
+        call: http.post
+        args:
+          url: ${service_urls.validator + "/validate"}
+          headers:
+            Content-Type: application/json
+          body:
+            job_id: ${job_id}
+            tf_model_uri: ${tf_model_uri}
+            model_spec_uri: ${convert_resp.body.model_spec_uri}
+            state_dict_uri: ${convert_resp.body.state_dict_uri}
+            artifacts_prefix_uri: ${artifacts_prefix_uri}
+            validation: ${default(map.get(args, "validation"), null)}
+        result: validate_resp
+
+    - report:
+        call: http.post
+        args:
+          url: ${service_urls.reporter + "/report"}
+          headers:
+            Content-Type: application/json
+          body:
+            job_id: ${job_id}
+            blueprint_uri: ${analyze_resp.body.blueprint_uri}
+            model_spec_uri: ${convert_resp.body.model_spec_uri}
+            validation_report_uri: ${validate_resp.body.validation_report_uri}
+            artifacts_prefix_uri: ${artifacts_prefix_uri}
+        result: report_resp
+
+    - done:
+        return:
+          job_id: ${job_id}
+          blueprint_uri: ${analyze_resp.body.blueprint_uri}
+          model_spec_uri: ${convert_resp.body.model_spec_uri}
+          state_dict_uri: ${convert_resp.body.state_dict_uri}
+          validation_report_uri: ${validate_resp.body.validation_report_uri}
+          final_report_uri: ${report_resp.body.final_report_uri}

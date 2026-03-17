@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+numpy>=1.26
+google-cloud-storage>=2.14
+tensorflow>=2.15
+torch>=2.2
