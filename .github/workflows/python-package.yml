@@ -1,4 +1,4 @@
-name: Python package
+name: RL / ML CI Pipeline
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     strategy:
@@ -16,42 +16,57 @@ jobs:
         python-version: ["3.9", "3.10", "3.11"]
 
     steps:
-      # Checkout code
+      # 📥 Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Setup Python
+      # 🐍 Setup Python
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Cache dependencies (faster builds)
+      # ⚡ Cache pip
       - name: Cache pip dependencies
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-${{ matrix.python-version }}-pip-
 
-      # Install dependencies
+      # 📦 Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest
+          
+          # Core tools
+          pip install flake8 pytest pytest-xdist coverage
+          
+          # Install project deps
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # Lint code
+          # OPTIONAL: Uncomment if using PyTorch
+          # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+          # OPTIONAL: Uncomment if using TensorFlow
+          # pip install tensorflow
+
+      # 🧹 Lint
       - name: Lint with flake8
         run: |
-          # Stop on syntax errors
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          
-          # Show warnings but don't fail build
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          flake8 . --count --exit-zero --max-complexity=12 --max-line-length=127 --statistics
 
-      # Run tests
+      # 🧪 Run tests (parallel + coverage)
       - name: Run tests with pytest
         run: |
-          pytest
+          pytest -n auto --maxfail=1 --disable-warnings \
+          --cov=. --cov-report=xml --cov-report=term
+
+      # 📊 Upload coverage
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
